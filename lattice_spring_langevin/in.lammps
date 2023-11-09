@@ -1,0 +1,64 @@
+units metal
+read_data in.lammpsdata
+pair_style eam
+pair_coeff * * Fe.eam
+
+variable Seed equal 123456
+variable P equal 0.0
+
+shell rmdir lattice log
+shell mkdir lattice log
+shell rm log.lammps
+
+label main
+variable i loop 16
+    # lattice constant
+    variable T equal ${i}*100
+    velocity all create ${T} ${i} mom yes rot yes dist gaussian
+
+    fix fph all nph iso ${P} ${P} 1
+    fix ft all langevin ${T} ${T} 0.1 ${Seed}
+    variable a equal lx
+    variable b equal ly
+    variable c equal lz
+    fix f_lc all ave/time 1 10000 10000 v_a v_b v_c file lattice/lc_${T}.dat
+
+    thermo 100
+    thermo_style custom step pe ke etotal temp lx ly lz vol press pxx pyy pzz
+    thermo_modify line yaml
+    thermo_modify flush yes
+    log log/lc.${T}K.log.lammps
+    run 100000
+    unfix fph
+    unfix ft
+    unfix f_lc
+    write_data lattice/${T}K.lammpsdata nocoeff
+
+    # spring_constant
+    velocity all zero linear
+    velocity all zero angular
+    compute msd all msd com yes average yes
+    variable xcm equal xcm(all,x)
+    variable ycm equal xcm(all,y)
+    variable zcm equal xcm(all,z) 
+    compute tc all temp/com
+    fix fph all nph iso ${P} ${P} 1.0 fixedpoint ${xcm} ${ycm} ${zcm}
+    fix ft all langevin ${T} ${T} 0.1 ${Seed} zero yes
+    fix_modify fph temp tc
+    fix_modify ft temp tc
+    fix f_sc all ave/time 1 10000 10000 v_a v_b v_c c_msd[4] file lattice/msd_${T}.dat
+
+    thermo 100
+    thermo_style custom step pe ke etotal temp lx ly lz vol press pxx pyy pzz c_msd[4]
+    thermo_modify line yaml
+    thermo_modify flush yes
+    log log/sc.${T}K.log.lammps
+    run 100000
+    unfix fph
+    unfix ft
+    unfix f_sc
+    uncompute msd
+    uncompute tc
+next i
+jump SELF main
+

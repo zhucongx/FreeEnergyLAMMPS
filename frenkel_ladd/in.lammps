@@ -1,0 +1,50 @@
+#--------------------------- Simulation variables -----------------------------#
+# Initalizes the random number generator.
+variable RND equal round(random(0,999,${RANDOM}))
+
+# Simulation control parameters.
+variable t_eq equal 20000 # Equilibration time.
+variable t equal 100000 # Switching time.
+
+#---------------------------- Atomic setup ------------------------------------#
+units            metal
+# Create atoms.
+lattice          bcc ${a}
+region           sim_box block 0 18 0 18 0 18
+create_box       1 sim_box
+create_atoms     1 box
+
+# Define interatomic potential.
+pair_style       eam
+pair_coeff       * * ../Fe.eam
+#----------------------------- Run simulation ---------------------------------#
+# Initial temperature to accelerate equilibration.
+velocity all create ${T} ${RND} mom yes rot yes dist gaussian
+
+# Integrator, Frenkel-Ladd modifier, and thermostat.
+fix fe all nve 
+fix fti all ti/spring ${k} ${t} ${t_eq} function 2
+fix ft all langevin ${T} ${T} 0.1 ${RND} zero yes
+compute tcom all temp/com
+fix_modify ft temp tcom
+
+# Setup thermo output.
+variable dE equal pe-f_fti
+variable lambda equal f_fti[1]
+
+thermo_style custom step pe ke etotal temp lx ly lz vol press pxx pyy pzz v_dE v_lambda
+thermo 100
+thermo_modify line yaml
+thermo_modify flush yes
+
+# Forward integration.
+run ${t_eq}
+fix fpf all print 1 "${dE} ${lambda}" title "# dE [eV] lambda" screen no file data/forward_${T}K.dat
+run ${t}
+unfix fpf
+
+# Backward integration. 
+run ${t_eq}
+fix fpb all print 1 "${dE} ${lambda}" title "# dE [eV] lambda" screen no file data/backward_${T}K.dat
+run ${t}
+#------------------------------------------------------------------------------#

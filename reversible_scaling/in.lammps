@@ -1,0 +1,52 @@
+#--------------------------- Simulation variables -----------------------------#
+# Initalizes the random number generator.
+variable RND equal round(random(0,999,${RANDOM}))
+
+# Simulation control parameters.
+variable         t_eq equal 20000 # Equilibration time.
+variable         t equal 100000 # Switching time.
+variable         T_0 equal 100 # Simulation temperature.
+variable         T_n equal 1600 # Target temperature.
+variable         P equal 0 # Simulation pressure.
+
+#---------------------------- Atomic setup ------------------------------------#
+units            metal
+# Create atoms.
+lattice          bcc 2.8841
+region           sim_box block 0 18 0 18 0 18
+create_box       1 sim_box
+create_atoms     1 box
+
+# Define Interatomic potential.
+pair_style       eam
+pair_coeff       * * ../Fe.eam
+#----------------------------- Run simulation ---------------------------------#
+# Initial temperature to accelerate equilibration.
+velocity all create ${T_0} ${RND} mom yes rot yes dist gaussian
+
+# Setup thermo output.
+variable lambda equal 1
+thermo_style custom step pe ke etotal temp lx ly lz vol press pxx pyy pzz v_lambda
+thermo 100
+thermo_modify line yaml
+thermo_modify flush yes
+
+# Integrator, barostat, and thermostat.
+fix fph all nph iso ${P} ${P} 1.0
+fix ft all langevin ${T_0} ${T_0} 0.1 ${RND}
+# Forward integration.
+run ${t_eq}
+variable lambda equal 1/(1+(elapsed/${t})*(${T_n}/${T_0}-1))
+fix fad all adapt 1 pair eam scale * * v_lambda
+fix fpf all print 1 "$(pe/atoms) ${lambda}" screen no file data/forward.dat title "# pe [eV] lambda"
+run ${t}
+unfix fad
+unfix fpf
+
+# Backward integration. 
+run ${t_eq}
+variable lambda equal 1/(1+(1-(elapsed/${t}))*(${T_n}/${T_0}-1))
+fix fad all adapt 1 pair eam scale * * v_lambda
+fix fpb all print 1 "$(pe/atoms) ${lambda}" screen no file data/backward.dat title "# pe [eV] lambda"
+run ${t}
+#------------------------------------------------------------------------------#
